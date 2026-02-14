@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/DataDog/datadog-agent/tools/flare-tool/pkg/types"
+	"github.com/ArmentaRoberto/datadog-agent-flare-tool/pkg/types"
 )
 
 // Generate runs all analysis and produces a formatted report written to w.
@@ -212,8 +212,6 @@ func humanSize(bytes int64) string {
 
 // GenerateJSON writes the report as JSON (for machine consumption).
 func GenerateJSON(w io.Writer, report *types.AnalysisReport) error {
-	// Simple JSON output without importing encoding/json to keep this focused
-	// In practice you'd use json.Marshal, but we keep the dependency light
 	fmt.Fprintln(w, "{")
 	fmt.Fprintf(w, "  \"hostname\": %q,\n", report.FlareInfo.Hostname)
 	fmt.Fprintf(w, "  \"agent_version\": %q,\n", report.FlareInfo.AgentVersion)

@@ -6,8 +6,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/DataDog/datadog-agent/tools/flare-tool/pkg/extractor"
-	"github.com/DataDog/datadog-agent/tools/flare-tool/pkg/types"
+	"github.com/ArmentaRoberto/datadog-agent-flare-tool/pkg/extractor"
+	"github.com/ArmentaRoberto/datadog-agent-flare-tool/pkg/types"
 )
 
 // LogAnalyzer inspects agent log files for errors, panics, and patterns.

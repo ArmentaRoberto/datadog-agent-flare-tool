@@ -2,8 +2,8 @@
 package analyzer
 
 import (
-	"github.com/DataDog/datadog-agent/tools/flare-tool/pkg/extractor"
-	"github.com/DataDog/datadog-agent/tools/flare-tool/pkg/types"
+	"github.com/ArmentaRoberto/datadog-agent-flare-tool/pkg/extractor"
+	"github.com/ArmentaRoberto/datadog-agent-flare-tool/pkg/types"
 )
 
 // Analyzer inspects specific parts of a flare archive and produces findings.

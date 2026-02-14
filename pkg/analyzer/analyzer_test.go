@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/DataDog/datadog-agent/tools/flare-tool/pkg/extractor"
-	"github.com/DataDog/datadog-agent/tools/flare-tool/pkg/types"
+	"github.com/ArmentaRoberto/datadog-agent-flare-tool/pkg/extractor"
+	"github.com/ArmentaRoberto/datadog-agent-flare-tool/pkg/types"
 )
 
 func createTestArchive(t *testing.T, files map[string]string) *extractor.FlareArchive {

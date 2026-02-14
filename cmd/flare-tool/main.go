@@ -22,10 +22,10 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/DataDog/datadog-agent/tools/flare-tool/pkg/analyzer"
-	"github.com/DataDog/datadog-agent/tools/flare-tool/pkg/extractor"
-	"github.com/DataDog/datadog-agent/tools/flare-tool/pkg/report"
-	"github.com/DataDog/datadog-agent/tools/flare-tool/pkg/types"
+	"github.com/ArmentaRoberto/datadog-agent-flare-tool/pkg/analyzer"
+	"github.com/ArmentaRoberto/datadog-agent-flare-tool/pkg/extractor"
+	"github.com/ArmentaRoberto/datadog-agent-flare-tool/pkg/report"
+	"github.com/ArmentaRoberto/datadog-agent-flare-tool/pkg/types"
 )
 
 const version = "1.0.0"
@@ -154,19 +154,19 @@ func runAnalysis(archive *extractor.FlareArchive) *types.AnalysisReport {
 
 	// Determine available sections
 	sectionChecks := map[string]string{
-		"logs/agent.log":           "Logs",
-		"etc/datadog.yaml":         "Config",
-		"status.log":               "Status",
-		"health.yaml":              "Health",
-		"diagnose.log":             "Diagnostics",
-		"docker_ps.log":            "Docker",
-		"k8s/kubelet_pods.yaml":    "Kubernetes",
-		"expvar/forwarder":         "Expvars",
-		"metadata/host.json":       "Metadata",
-		"go-routine-dump.log":      "Goroutines",
-		"tagger-list.json":         "Tagger",
-		"secrets.log":              "Secrets",
-		"ecs_metadata.json":        "ECS",
+		"logs/agent.log":        "Logs",
+		"etc/datadog.yaml":      "Config",
+		"status.log":            "Status",
+		"health.yaml":           "Health",
+		"diagnose.log":          "Diagnostics",
+		"docker_ps.log":         "Docker",
+		"k8s/kubelet_pods.yaml": "Kubernetes",
+		"expvar/forwarder":      "Expvars",
+		"metadata/host.json":    "Metadata",
+		"go-routine-dump.log":   "Goroutines",
+		"tagger-list.json":      "Tagger",
+		"secrets.log":           "Secrets",
+		"ecs_metadata.json":     "ECS",
 	}
 	for file, section := range sectionChecks {
 		if archive.HasFile(file) {

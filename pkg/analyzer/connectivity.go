@@ -5,8 +5,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/DataDog/datadog-agent/tools/flare-tool/pkg/extractor"
-	"github.com/DataDog/datadog-agent/tools/flare-tool/pkg/types"
+	"github.com/ArmentaRoberto/datadog-agent-flare-tool/pkg/extractor"
+	"github.com/ArmentaRoberto/datadog-agent-flare-tool/pkg/types"
 )
 
 // ConnectivityAnalyzer checks for network and connectivity issues.

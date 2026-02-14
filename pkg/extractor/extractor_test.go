@@ -39,7 +39,7 @@ func createTestArchive(t *testing.T, files map[string]string) string {
 
 func TestOpenAndHostname(t *testing.T) {
 	path := createTestArchive(t, map[string]string{
-		"myhost/status.log": "Agent (v7.52.0)",
+		"myhost/status.log":  "Agent (v7.52.0)",
 		"myhost/health.yaml": "collector: healthy",
 	})
 
@@ -77,8 +77,8 @@ func TestReadFile(t *testing.T) {
 
 func TestHasFile(t *testing.T) {
 	path := createTestArchive(t, map[string]string{
-		"myhost/status.log": "content",
-		"myhost/etc/datadog.yaml": "api_key: test",
+		"myhost/status.log":        "content",
+		"myhost/etc/datadog.yaml":  "api_key: test",
 	})
 
 	archive, err := Open(path)
@@ -100,10 +100,10 @@ func TestHasFile(t *testing.T) {
 
 func TestListDir(t *testing.T) {
 	path := createTestArchive(t, map[string]string{
-		"myhost/etc/datadog.yaml":    "content",
-		"myhost/etc/confd/cpu.yaml":  "content",
+		"myhost/etc/datadog.yaml":   "content",
+		"myhost/etc/confd/cpu.yaml": "content",
 		"myhost/etc/confd/disk.yaml": "content",
-		"myhost/status.log":          "content",
+		"myhost/status.log":         "content",
 	})
 
 	archive, err := Open(path)

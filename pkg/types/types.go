@@ -89,13 +89,13 @@ type AnalysisReport struct {
 
 // ReportSummary provides aggregate stats about the analysis.
 type ReportSummary struct {
-	TotalFindings    int
-	CriticalCount    int
-	ErrorCount       int
-	WarningCount     int
-	InfoCount        int
-	AnalyzersRun     int
-	FilesAnalyzed    int
-	MissingFiles     []string
+	TotalFindings     int
+	CriticalCount     int
+	ErrorCount        int
+	WarningCount      int
+	InfoCount         int
+	AnalyzersRun      int
+	FilesAnalyzed     int
+	MissingFiles      []string
 	AvailableSections []string
 }
