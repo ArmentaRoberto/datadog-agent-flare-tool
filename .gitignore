@@ -1,3 +1,6 @@
+# flare-tool binary
+/flare-tool
+
 # dogstatsd image temporary binaries
 Dockerfiles/dogstatsd/alpine/static/
 
