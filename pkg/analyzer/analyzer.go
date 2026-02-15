@@ -34,4 +34,6 @@ func init() {
 	Register(&SecurityAnalyzer{})
 	Register(&MetadataAnalyzer{})
 	Register(&CompletenessAnalyzer{})
+	Register(&ExpvarDeepAnalyzer{})
+	Register(&LogInsightAnalyzer{})
 }

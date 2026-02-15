@@ -2,8 +2,10 @@ package analyzer
 
 import (
 	"archive/zip"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/ArmentaRoberto/datadog-agent-flare-tool/pkg/extractor"
@@ -296,9 +298,582 @@ func TestAllAnalyzersRun(t *testing.T) {
 		t.Error("expected at least some findings from running all analyzers")
 	}
 
-	// Verify all 11 analyzers are registered
-	if len(Registry) != 11 {
-		t.Errorf("expected 11 registered analyzers, got %d", len(Registry))
+	// Verify all 13 analyzers are registered (11 original + ExpvarDeep + LogInsight)
+	if len(Registry) != 13 {
+		t.Errorf("expected 13 registered analyzers, got %d", len(Registry))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// ExpvarDeepAnalyzer tests
+// ---------------------------------------------------------------------------
+
+func TestExpvarDeep_ForwarderDataLoss(t *testing.T) {
+	archive := createTestArchive(t, map[string]string{
+		"myhost/expvar/forwarder": `Transactions:
+  Success: 10000
+  Errors: 500
+  Dropped: 200
+  Retried: 150
+  RetryQueueSize: 25
+  HighPriorityQueueFull: 0
+  ErrorsByType:
+    DNSErrors: 50
+    TLSErrors: 300
+    ConnectionErrors: 100
+    WroteRequestErrors: 0
+    SentRequestErrors: 0
+  DroppedByEndpoint:
+    v1-series: 150
+    v1-intake: 50
+  HTTPErrorsByCode:
+    403: 200
+`,
+	})
+
+	a := &ExpvarDeepAnalyzer{}
+	findings := a.Analyze(archive)
+
+	// Should detect data loss
+	var foundDataLoss bool
+	for _, f := range findings {
+		if strings.Contains(f.Title, "data loss") || strings.Contains(f.Title, "success rate") {
+			foundDataLoss = true
+			if f.Severity < types.SeverityError {
+				t.Errorf("expected ERROR or higher for data loss, got %v", f.Severity)
+			}
+			// Should mention TLS as dominant error
+			if !strings.Contains(f.Description, "TLS") {
+				t.Error("expected TLS to be mentioned in error breakdown")
+			}
+			// Should mention per-endpoint drops
+			if !strings.Contains(f.Description, "v1-series") {
+				t.Error("expected per-endpoint breakdown")
+			}
+			// Should mention HTTP 403
+			if !strings.Contains(f.Description, "403") {
+				t.Error("expected HTTP 403 error code")
+			}
+			break
+		}
+	}
+	if !foundDataLoss {
+		t.Fatal("expected forwarder data loss finding")
+	}
+
+	// Should detect retry queue
+	var foundRetryQueue bool
+	for _, f := range findings {
+		if strings.Contains(f.Title, "retry queue") {
+			foundRetryQueue = true
+			break
+		}
+	}
+	if !foundRetryQueue {
+		t.Error("expected retry queue finding")
+	}
+}
+
+func TestExpvarDeep_ForwarderHealthy(t *testing.T) {
+	archive := createTestArchive(t, map[string]string{
+		"myhost/expvar/forwarder": `Transactions:
+  Success: 50000
+  Errors: 0
+  Dropped: 0
+  Retried: 0
+  RetryQueueSize: 0
+`,
+	})
+
+	a := &ExpvarDeepAnalyzer{}
+	findings := a.Analyze(archive)
+
+	var found bool
+	for _, f := range findings {
+		if strings.Contains(f.Title, "100% success") {
+			found = true
+			if f.Severity != types.SeverityInfo {
+				t.Errorf("expected INFO for healthy forwarder, got %v", f.Severity)
+			}
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected healthy forwarder finding")
+	}
+}
+
+func TestExpvarDeep_AggregatorCardinality(t *testing.T) {
+	archive := createTestArchive(t, map[string]string{
+		"myhost/expvar/aggregator": `DogstatsdContexts: 75000
+DogstatsdContextsByMtype:
+  Gauge: 25000
+  Counter: 20000
+  Distribution: 30000
+SeriesFlushed: 100000
+SeriesFlushErrors: 500
+EventsFlushed: 1000
+EventsFlushErrors: 0
+`,
+	})
+
+	a := &ExpvarDeepAnalyzer{}
+	findings := a.Analyze(archive)
+
+	// Should detect high cardinality
+	var foundCardinality bool
+	for _, f := range findings {
+		if strings.Contains(f.Title, "cardinality") {
+			foundCardinality = true
+			if f.Severity < types.SeverityError {
+				t.Errorf("expected ERROR or higher for 75k contexts, got %v", f.Severity)
+			}
+			if !strings.Contains(f.Description, "Distribution") {
+				t.Error("expected metric type breakdown")
+			}
+			break
+		}
+	}
+	if !foundCardinality {
+		t.Fatal("expected cardinality finding")
+	}
+}
+
+func TestExpvarDeep_DogstatsdParseErrors(t *testing.T) {
+	archive := createTestArchive(t, map[string]string{
+		"myhost/expvar/dogstatsd": `MetricPackets: 10000
+MetricParseErrors: 1000
+EventPackets: 100
+EventParseErrors: 0
+ServiceCheckPackets: 50
+ServiceCheckParseErrors: 0
+UnterminatedMetricErrors: 50
+`,
+	})
+
+	a := &ExpvarDeepAnalyzer{}
+	findings := a.Analyze(archive)
+
+	var found bool
+	for _, f := range findings {
+		if strings.Contains(f.Title, "parse error") {
+			found = true
+			if f.Severity < types.SeverityError {
+				t.Errorf("expected ERROR for >5%% parse errors, got %v", f.Severity)
+			}
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected DogStatsD parse error finding")
+	}
+}
+
+func TestExpvarDeep_MemoryAnalysis(t *testing.T) {
+	archive := createTestArchive(t, map[string]string{
+		"myhost/expvar/agent": `memstats:
+  Alloc: 524288000
+  TotalAlloc: 10737418240
+  Sys: 2684354560
+  HeapAlloc: 524288000
+  HeapInuse: 536870912
+  HeapIdle: 268435456
+  NumGC: 5000
+  PauseTotalNs: 100000000000
+goroutines: 350
+`,
+	})
+
+	a := &ExpvarDeepAnalyzer{}
+	findings := a.Analyze(archive)
+
+	var found bool
+	for _, f := range findings {
+		if strings.Contains(f.Title, "memory") || strings.Contains(f.Title, "Memory") {
+			found = true
+			if f.Severity < types.SeverityError {
+				t.Errorf("expected ERROR for >2GB memory, got %v", f.Severity)
+			}
+			if !strings.Contains(f.Description, "GC") {
+				t.Error("expected GC info in memory analysis")
+			}
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected memory analysis finding")
+	}
+}
+
+func TestExpvarDeep_RunnerCheckHealth(t *testing.T) {
+	archive := createTestArchive(t, map[string]string{
+		"myhost/expvar/runner": `Runs: 1000
+Errors: 150
+Warnings: 30
+Running: 2
+Checks:
+  postgres:
+    RunCount: 500
+    TotalErrors: 100
+    TotalWarnings: 5
+    AverageExecutionTime: 25000000000
+    LastExecutionTime: 23000000000
+    LastError: "connection refused to 10.0.0.5:5432"
+  cpu:
+    RunCount: 500
+    TotalErrors: 0
+    TotalWarnings: 0
+    AverageExecutionTime: 15000000
+    LastExecutionTime: 14000000
+    LastError: ""
+`,
+	})
+
+	a := &ExpvarDeepAnalyzer{}
+	findings := a.Analyze(archive)
+
+	// Should detect unhealthy checks
+	var foundUnhealthy bool
+	for _, f := range findings {
+		if strings.Contains(f.Title, "runtime errors") {
+			foundUnhealthy = true
+			if !strings.Contains(f.Description, "postgres") {
+				t.Error("expected postgres check in unhealthy list")
+			}
+			if !strings.Contains(f.Description, "connection refused") {
+				t.Error("expected last error message")
+			}
+			break
+		}
+	}
+	if !foundUnhealthy {
+		t.Fatal("expected unhealthy check finding")
+	}
+
+	// Should detect slow checks
+	var foundSlow bool
+	for _, f := range findings {
+		if strings.Contains(f.Title, "slow check") || strings.Contains(f.Title, "Slow") {
+			foundSlow = true
+			if !strings.Contains(f.Description, "postgres") {
+				t.Error("expected postgres in slow checks")
+			}
+			break
+		}
+	}
+	if !foundSlow {
+		t.Fatal("expected slow check finding")
+	}
+}
+
+func TestExpvarDeep_LogsAgentHealth(t *testing.T) {
+	archive := createTestArchive(t, map[string]string{
+		"myhost/expvar/logs-agent": `LogsDecoded: 50000
+LogsProcessed: 50000
+LogsSent: 49000
+LogsTruncated: 500
+DestinationErrors: 100
+BytesSent: 104857600
+EncodedBytesSent: 20971520
+BytesMissed: 5242880
+RetryCount: 50
+SenderLatency: 2500
+`,
+	})
+
+	a := &ExpvarDeepAnalyzer{}
+	findings := a.Analyze(archive)
+
+	var found bool
+	for _, f := range findings {
+		if strings.Contains(f.Title, "Logs agent") || strings.Contains(f.Title, "logs agent") {
+			found = true
+			if f.Severity < types.SeverityError {
+				t.Errorf("expected ERROR for destination errors, got %v", f.Severity)
+			}
+			if !strings.Contains(f.Description, "Decoded") {
+				t.Error("expected pipeline metrics in description")
+			}
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected logs agent health finding")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// LogInsightAnalyzer tests
+// ---------------------------------------------------------------------------
+
+func TestLogInsight_ErrorClassification(t *testing.T) {
+	// Create logs with various error types
+	var logContent strings.Builder
+	// Network errors
+	for i := 0; i < 20; i++ {
+		logContent.WriteString("2024-01-15 14:30:00 UTC | CORE | ERROR | (forwarder.go:54 in send) | connection refused to 10.0.0.5:8126\n")
+	}
+	// TLS errors
+	for i := 0; i < 10; i++ {
+		logContent.WriteString("2024-01-15 14:31:00 UTC | CORE | ERROR | (http.go:100 in post) | TLS handshake error: certificate has expired\n")
+	}
+	// Permission errors
+	for i := 0; i < 5; i++ {
+		logContent.WriteString("2024-01-15 14:32:00 UTC | CORE | ERROR | (check.go:50 in run) | permission denied reading /var/log/syslog\n")
+	}
+
+	archive := createTestArchive(t, map[string]string{
+		"myhost/logs/agent.log": logContent.String(),
+	})
+
+	a := &LogInsightAnalyzer{}
+	findings := a.Analyze(archive)
+
+	// Should classify errors
+	var foundClassification bool
+	for _, f := range findings {
+		if strings.Contains(f.Title, "classification") || strings.Contains(f.Title, "Classification") {
+			foundClassification = true
+			if !strings.Contains(f.Description, "Network") {
+				t.Error("expected Network error class")
+			}
+			if !strings.Contains(f.Description, "TLS") {
+				t.Error("expected TLS error class")
+			}
+			if !strings.Contains(f.Description, "Permission") {
+				t.Error("expected Permission error class")
+			}
+			break
+		}
+	}
+	if !foundClassification {
+		t.Fatal("expected error classification finding")
+	}
+
+	// Should have root cause inference
+	var foundRootCause bool
+	for _, f := range findings {
+		if strings.Contains(f.Title, "Root cause") || strings.Contains(f.Title, "root cause") {
+			foundRootCause = true
+			break
+		}
+	}
+	if !foundRootCause {
+		t.Fatal("expected root cause analysis finding")
+	}
+}
+
+func TestLogInsight_ErrorSpike(t *testing.T) {
+	var logContent strings.Builder
+	// Normal period: 2 errors per 5 minutes
+	for i := 0; i < 10; i++ {
+		ts := fmt.Sprintf("2024-01-15 14:%02d:00 UTC", i*5)
+		logContent.WriteString(ts + " | CORE | ERROR | (check.go:50 in run) | some error\n")
+		logContent.WriteString(ts + " | CORE | ERROR | (check.go:51 in run) | another error\n")
+		logContent.WriteString(ts + " | CORE | INFO | (main.go:10 in main) | heartbeat\n")
+	}
+	// Spike period: 100 errors in 5 minutes
+	for i := 0; i < 100; i++ {
+		logContent.WriteString("2024-01-15 15:00:00 UTC | CORE | ERROR | (forwarder.go:54 in send) | connection refused to 10.0.0.5:443\n")
+	}
+
+	archive := createTestArchive(t, map[string]string{
+		"myhost/logs/agent.log": logContent.String(),
+	})
+
+	a := &LogInsightAnalyzer{}
+	findings := a.Analyze(archive)
+
+	var foundSpike bool
+	for _, f := range findings {
+		if strings.Contains(f.Title, "spike") || strings.Contains(f.Title, "Spike") {
+			foundSpike = true
+			if f.Severity < types.SeverityError {
+				t.Errorf("expected ERROR severity for spike, got %v", f.Severity)
+			}
+			break
+		}
+	}
+	if !foundSpike {
+		t.Fatal("expected error spike finding")
+	}
+}
+
+func TestLogInsight_CrossComponentCorrelation(t *testing.T) {
+	archive := createTestArchive(t, map[string]string{
+		"myhost/logs/agent.log": strings.Repeat(
+			"2024-01-15 14:30:00 UTC | CORE | ERROR | (forwarder.go:54 in send) | connection refused\n", 20),
+		"myhost/logs/trace-agent.log": strings.Repeat(
+			"2024-01-15 14:30:00 UTC | TRACE | ERROR | (writer.go:100 in flush) | connection refused\n", 15),
+	})
+
+	a := &LogInsightAnalyzer{}
+	findings := a.Analyze(archive)
+
+	var foundCorrelation bool
+	for _, f := range findings {
+		if strings.Contains(f.Title, "correlation") || strings.Contains(f.Title, "Correlation") {
+			foundCorrelation = true
+			break
+		}
+	}
+	if !foundCorrelation {
+		t.Fatal("expected cross-component correlation finding")
+	}
+}
+
+func TestLogInsight_CrashExtraction(t *testing.T) {
+	archive := createTestArchive(t, map[string]string{
+		"myhost/logs/agent.log": `2024-01-15 14:30:00 UTC | CORE | INFO | starting
+2024-01-15 14:30:01 UTC | CORE | ERROR | panic: runtime error: invalid memory address
+goroutine 1 [running]:
+github.com/DataDog/datadog-agent/pkg/aggregator.(*BufferedAggregator).Flush(0xc0001a2000)
+	/go/src/github.com/DataDog/datadog-agent/pkg/aggregator/aggregator.go:432
+main.main()
+	/go/src/github.com/DataDog/datadog-agent/cmd/agent/main.go:100
+
+`,
+	})
+
+	a := &LogInsightAnalyzer{}
+	findings := a.Analyze(archive)
+
+	var foundCrash bool
+	for _, f := range findings {
+		if strings.Contains(f.Title, "crash") || strings.Contains(f.Title, "Crash") {
+			foundCrash = true
+			if f.Severity != types.SeverityCritical {
+				t.Errorf("expected CRITICAL for crash, got %v", f.Severity)
+			}
+			if !strings.Contains(f.Description, "aggregator") {
+				t.Error("expected stack frame reference in crash description")
+			}
+			break
+		}
+	}
+	if !foundCrash {
+		t.Fatal("expected crash finding")
+	}
+}
+
+func TestLogInsight_NoErrorsReturnsNil(t *testing.T) {
+	archive := createTestArchive(t, map[string]string{
+		"myhost/logs/agent.log": "2024-01-15 14:30:00 UTC | CORE | INFO | all good\n",
+	})
+
+	a := &LogInsightAnalyzer{}
+	findings := a.Analyze(archive)
+
+	if len(findings) != 0 {
+		t.Errorf("expected no findings for clean logs, got %d", len(findings))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Expvar helper function tests
+// ---------------------------------------------------------------------------
+
+func TestExtractBlock(t *testing.T) {
+	content := `Transactions:
+  Success: 12345
+  Errors: 5
+  ConnectionEvents:
+    DNSSuccess: 100
+    ConnectSuccess: 200
+OtherKey: value
+`
+	block := extractBlock(content, "Transactions")
+	if block == "" {
+		t.Fatal("expected non-empty block for Transactions")
+	}
+	if !strings.Contains(block, "Success: 12345") {
+		t.Error("expected Success in Transactions block")
+	}
+	if strings.Contains(block, "OtherKey") {
+		t.Error("Transactions block should not contain OtherKey")
+	}
+}
+
+func TestBlockInt(t *testing.T) {
+	block := "  Success: 12345\n  Errors: 0\n"
+	if v := blockInt(block, "Success"); v != 12345 {
+		t.Errorf("blockInt(Success) = %d, want 12345", v)
+	}
+	if v := blockInt(block, "Errors"); v != 0 {
+		t.Errorf("blockInt(Errors) = %d, want 0", v)
+	}
+	if v := blockInt(block, "Missing"); v != 0 {
+		t.Errorf("blockInt(Missing) = %d, want 0", v)
+	}
+}
+
+func TestBlockSection(t *testing.T) {
+	content := `DroppedByEndpoint:
+  v1-series: 150
+  v1-intake: 50
+OtherKey: value
+`
+	section := blockSection(content, "DroppedByEndpoint")
+	if len(section) != 2 {
+		t.Fatalf("expected 2 entries, got %d", len(section))
+	}
+	if section["v1-series"] != 150 {
+		t.Errorf("v1-series = %d, want 150", section["v1-series"])
+	}
+	if section["v1-intake"] != 50 {
+		t.Errorf("v1-intake = %d, want 50", section["v1-intake"])
+	}
+}
+
+func TestFmtCount(t *testing.T) {
+	tests := []struct {
+		input int64
+		want  string
+	}{
+		{0, "0"},
+		{999, "999"},
+		{1000, "1,000"},
+		{1234567, "1,234,567"},
+	}
+	for _, tt := range tests {
+		got := fmtCount(tt.input)
+		if got != tt.want {
+			t.Errorf("fmtCount(%d) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
+
+func TestFmtBytes(t *testing.T) {
+	if got := fmtBytes(500); got != "500 B" {
+		t.Errorf("fmtBytes(500) = %q", got)
+	}
+	if got := fmtBytes(1536); !strings.Contains(got, "KB") {
+		t.Errorf("fmtBytes(1536) = %q, expected KB", got)
+	}
+	if got := fmtBytes(1048576); !strings.Contains(got, "MB") {
+		t.Errorf("fmtBytes(1048576) = %q, expected MB", got)
+	}
+}
+
+func TestClassifyError(t *testing.T) {
+	tests := []struct {
+		msg  string
+		want errorClass
+	}{
+		{"connection refused to 10.0.0.5:5432", errClassNetwork},
+		{"TLS handshake error: certificate has expired", errClassTLS},
+		{"permission denied reading /var/log/syslog", errClassPermission},
+		{"context deadline exceeded", errClassTimeout},
+		{"panic: runtime error: invalid memory address", errClassCrash},
+		{"out of memory", errClassResource},
+		{"invalid config key: foobar", errClassConfig},
+		{"something went wrong", errClassUnknown},
+	}
+	for _, tt := range tests {
+		got := classifyError(tt.msg)
+		if got != tt.want {
+			t.Errorf("classifyError(%q) = %q, want %q", tt.msg, got, tt.want)
+		}
 	}
 }
 
